@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sales Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Segoe UI", "system-ui", "sans-serif"],
+            },
+          },
+        },
+      };
+    </script>
+  </head>
+  <body class="bg-slate-100 text-slate-800">
+    <div class="max-w-7xl mx-auto px-4 py-8">
+      <header class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between mb-8">
+        <div>
+          <p class="text-sm uppercase tracking-wide text-emerald-700 font-semibold">Bike shop sales</p>
+          <h1 class="text-3xl font-bold text-slate-900">Sales dashboard</h1>
+          <p class="text-slate-500 mt-1">Filter the Excel sales file by year, country, and category.</p>
+        </div>
+        <form id="filters" class="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full md:w-auto">
+          <label class="text-sm">
+            <span class="block mb-1 text-slate-500">Year</span>
+            <select name="year" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"></select>
+          </label>
+          <label class="text-sm">
+            <span class="block mb-1 text-slate-500">Country</span>
+            <select name="country" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"></select>
+          </label>
+          <label class="text-sm">
+            <span class="block mb-1 text-slate-500">Category</span>
+            <select name="category" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"></select>
+          </label>
+        </form>
+      </header>
+
+      <section id="kpis" class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8"></section>
+
+      <section class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        <article class="lg:col-span-2 bg-white rounded-2xl shadow-sm p-5">
+          <h2 class="font-semibold mb-4">Revenue and profit over time</h2>
+          <canvas id="trendChart" height="110"></canvas>
+        </article>
+        <article class="bg-white rounded-2xl shadow-sm p-5">
+          <h2 class="font-semibold mb-4">Revenue by category</h2>
+          <canvas id="categoryChart" height="220"></canvas>
+        </article>
+      </section>
+
+      <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <article class="bg-white rounded-2xl shadow-sm p-5">
+          <h2 class="font-semibold mb-4">Revenue by country</h2>
+          <canvas id="countryChart" height="160"></canvas>
+        </article>
+        <article class="bg-white rounded-2xl shadow-sm p-5">
+          <h2 class="font-semibold mb-4">Revenue by age group</h2>
+          <canvas id="ageChart" height="160"></canvas>
+        </article>
+      </section>
+
+      <article class="bg-white rounded-2xl shadow-sm p-5 overflow-x-auto">
+        <h2 class="font-semibold mb-4">Top 10 products by revenue</h2>
+        <table class="min-w-full text-sm">
+          <thead class="text-left text-slate-500 border-b">
+            <tr>
+              <th class="py-2 pr-4">Product</th>
+              <th class="py-2 pr-4 text-right">Units</th>
+              <th class="py-2 pr-4 text-right">Revenue</th>
+              <th class="py-2 text-right">Profit</th>
+            </tr>
+          </thead>
+          <tbody id="products"></tbody>
+        </table>
+      </article>
+    </div>
+
+    <script>
+      const money = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 0,
+      });
+      const number = new Intl.NumberFormat("en-US");
+      const charts = {};
+      const colors = ["#059669", "#0f766e", "#2563eb", "#7c3aed", "#d97706", "#db2777"];
+
+      function optionHtml(label, value = "") {
+        return `<option value="${value}">${label}</option>`;
+      }
+
+      function kpiCard(label, value) {
+        return `<div class="bg-white rounded-2xl shadow-sm p-4">
+          <p class="text-sm text-slate-500">${label}</p>
+          <p class="text-2xl font-bold mt-1">${value}</p>
+        </div>`;
+      }
+
+      function drawChart(id, config) {
+        if (charts[id]) charts[id].destroy();
+        charts[id] = new Chart(document.getElementById(id), config);
+      }
+
+      async function loadFilters() {
+        const data = await fetch("/api/filters").then((r) => r.json());
+        const form = document.getElementById("filters");
+        form.year.innerHTML = optionHtml("All years") + data.years.map((y) => optionHtml(y, y)).join("");
+        form.country.innerHTML =
+          optionHtml("All countries") + data.countries.map((c) => optionHtml(c, c)).join("");
+        form.category.innerHTML =
+          optionHtml("All categories") + data.categories.map((c) => optionHtml(c, c)).join("");
+      }
+
+      async function loadDashboard() {
+        const form = document.getElementById("filters");
+        const params = new URLSearchParams();
+        if (form.year.value) params.set("year", form.year.value);
+        if (form.country.value) params.set("country", form.country.value);
+        if (form.category.value) params.set("category", form.category.value);
+        const data = await fetch("/api/dashboard?" + params.toString()).then((r) => r.json());
+        const k = data.kpis;
+
+        document.getElementById("kpis").innerHTML = [
+          kpiCard("Revenue", money.format(k.revenue)),
+          kpiCard("Profit", money.format(k.profit)),
+          kpiCard("Cost", money.format(k.cost)),
+          kpiCard("Orders", number.format(k.orders)),
+          kpiCard("Margin", k.margin.toFixed(1) + "%"),
+        ].join("");
+
+        const labels = data.trend.map((r) => r.month.slice(0, 3) + " " + r.year);
+        drawChart("trendChart", {
+          type: "line",
+          data: {
+            labels,
+            datasets: [
+              { label: "Revenue", data: data.trend.map((r) => r.revenue), borderColor: "#059669", tension: 0.25, fill: false },
+              { label: "Profit", data: data.trend.map((r) => r.profit), borderColor: "#2563eb", tension: 0.25, fill: false },
+            ],
+          },
+          options: { responsive: true, plugins: { legend: { position: "bottom" } } },
+        });
+
+        drawChart("categoryChart", {
+          type: "doughnut",
+          data: {
+            labels: data.categories.map((r) => r.name),
+            datasets: [{ data: data.categories.map((r) => r.revenue), backgroundColor: colors }],
+          },
+          options: { plugins: { legend: { position: "bottom" } } },
+        });
+
+        drawChart("countryChart", {
+          type: "bar",
+          data: {
+            labels: data.countries.map((r) => r.name),
+            datasets: [{ label: "Revenue", data: data.countries.map((r) => r.revenue), backgroundColor: "#0f766e" }],
+          },
+          options: { plugins: { legend: { display: false } } },
+        });
+
+        drawChart("ageChart", {
+          type: "bar",
+          data: {
+            labels: data.ages.map((r) => r.name),
+            datasets: [{ label: "Revenue", data: data.ages.map((r) => r.revenue), backgroundColor: "#7c3aed" }],
+          },
+          options: { indexAxis: "y", plugins: { legend: { display: false } } },
+        });
+
+        document.getElementById("products").innerHTML = data.products
+          .map(
+            (p) => `<tr class="border-b last:border-0">
+              <td class="py-2 pr-4">${p.name}</td>
+              <td class="py-2 pr-4 text-right">${number.format(p.units)}</td>
+              <td class="py-2 pr-4 text-right">${money.format(p.revenue)}</td>
+              <td class="py-2 text-right">${money.format(p.profit)}</td>
+            </tr>`
+          )
+          .join("");
+      }
+
+      document.getElementById("filters").addEventListener("change", loadDashboard);
+      document.querySelectorAll("#filters select").forEach((el) => {
+        el.addEventListener("change", loadDashboard);
+      });
+      loadFilters().then(loadDashboard);
+    </script>
+  </body>
+</html>
